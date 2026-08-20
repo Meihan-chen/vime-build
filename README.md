@@ -13,8 +13,8 @@ No commit-specific image tags are created.
 ## Triggering
 
 [The workflow](.github/workflows/build-vime-npu.yml) polls the upstream branch
-every 15 minutes and can also be started manually from the Actions page. It
-compares the upstream HEAD with the image's
+once per hour (at minute 17) and can also be started manually from the Actions
+page. It compares the upstream HEAD with the image's
 `org.opencontainers.image.revision` label and skips an unchanged revision.
 
 Because GitHub Actions cannot subscribe to a push event in an unrelated

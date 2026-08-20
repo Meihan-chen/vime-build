@@ -19,12 +19,13 @@ class WorkflowContractTests(unittest.TestCase):
         )
         return DOCKERFILE_PATCH.read_text()
 
-    def test_supports_scheduled_polling_and_manual_runs(self) -> None:
+    def test_supports_hourly_polling_and_manual_runs(self) -> None:
         workflow = self.workflow()
 
         self.assertIn("workflow_dispatch:", workflow)
         self.assertIn("schedule:", workflow)
-        self.assertRegex(workflow, r"cron:\s*['\"]?\*/15 ")
+        self.assertRegex(workflow, r"cron:\s*['\"]?17 \* \* \* \*")
+        self.assertNotIn("*/15", workflow)
 
     def test_builds_natively_for_arm64(self) -> None:
         workflow = self.workflow()
