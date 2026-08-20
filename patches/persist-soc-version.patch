@@ -1,0 +1,10 @@
+diff --git a/docker/Dockerfile.npu b/docker/Dockerfile.npu
+--- a/docker/Dockerfile.npu
++++ b/docker/Dockerfile.npu
+@@ -18,4 +18,5 @@ ARG APTMIRROR=""
+-ENV DEBIAN_FRONTEND=noninteractive \
++ENV SOC_VERSION=$SOC_VERSION \
++    DEBIAN_FRONTEND=noninteractive \
+     PIP_NO_CACHE_DIR=1 \
+     ASCEND_TOOLKIT_HOME=/usr/local/Ascend/ascend-toolkit/latest \
+     ASCEND_OPP_PATH=/usr/local/Ascend/ascend-toolkit/latest/opp \
