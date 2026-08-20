@@ -27,12 +27,13 @@ class WorkflowContractTests(unittest.TestCase):
         )
         return SOC_VERSION_PATCH.read_text()
 
-    def test_supports_hourly_polling_and_manual_runs(self) -> None:
+    def test_supports_daily_polling_and_manual_runs(self) -> None:
         workflow = self.workflow()
 
         self.assertIn("workflow_dispatch:", workflow)
         self.assertIn("schedule:", workflow)
-        self.assertRegex(workflow, r"cron:\s*['\"]?17 \* \* \* \*")
+        self.assertRegex(workflow, r"cron:\s*['\"]?17 18 \* \* \*")
+        self.assertNotIn('cron: "17 * * * *"', workflow)
         self.assertNotIn("*/15", workflow)
 
     def test_builds_natively_for_arm64(self) -> None:

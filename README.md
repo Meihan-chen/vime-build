@@ -14,9 +14,10 @@ No commit-specific image tags are created.
 ## Triggering
 
 [The workflow](.github/workflows/build-vime-npu.yml) polls the upstream branch
-once per hour (at minute 17) and can also be started manually from the Actions
-page. Each variant compares the upstream HEAD, base-image tag, and SOC version
-with labels on its published image and skips an unchanged build configuration.
+once per day at 18:17 UTC (02:17 Asia/Shanghai) and can also be started manually
+from the Actions page. Each variant compares the upstream HEAD, base-image tag,
+and SOC version with labels on its published image and skips an unchanged build
+configuration.
 
 Because GitHub Actions cannot subscribe to a push event in an unrelated
 repository, polling is used instead of an upstream `push` trigger.
