@@ -116,14 +116,14 @@ jobs:
         if: steps.plan.outputs.should_build == 'true'
         run: |
           set -euo pipefail
-          if rg -q '^ARG VIME_COMMIT(=|$)' upstream/docker/Dockerfile.npu; then
+          if grep -Eq '^ARG VIME_COMMIT(=|$)' upstream/docker/Dockerfile.npu; then
             echo "Upstream Dockerfile already supports VIME_COMMIT."
           else
             git -C upstream apply --check ../patches/pin-vime-commit.patch
             git -C upstream apply ../patches/pin-vime-commit.patch
           fi
 
-          if rg -q '^ENV SOC_VERSION=' upstream/docker/Dockerfile.npu; then
+          if grep -Eq '^ENV SOC_VERSION=' upstream/docker/Dockerfile.npu; then
             echo "Upstream Dockerfile already persists SOC_VERSION."
           else
             git -C upstream apply --check ../patches/persist-soc-version.patch

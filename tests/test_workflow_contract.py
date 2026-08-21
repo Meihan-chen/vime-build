@@ -83,8 +83,9 @@ class WorkflowContractTests(unittest.TestCase):
     def test_only_applies_compatibility_patches_when_upstream_needs_them(self) -> None:
         workflow = self.workflow()
 
-        self.assertRegex(workflow, r"if rg -q .*ARG VIME_COMMIT")
-        self.assertRegex(workflow, r"if rg -q .*ENV SOC_VERSION")
+        self.assertRegex(workflow, r"if grep -Eq .*ARG VIME_COMMIT")
+        self.assertRegex(workflow, r"if grep -Eq .*ENV SOC_VERSION")
+        self.assertNotIn("if rg -q", workflow)
 
     def test_rechecks_upstream_head_before_promoting_latest(self) -> None:
         workflow = self.workflow()
