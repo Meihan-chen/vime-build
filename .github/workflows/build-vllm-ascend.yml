@@ -1,5 +1,5 @@
 name: Build pinned vLLM Ascend image
-run-name: vLLM Ascend ${{ inputs.ascend_commit }} (${{ inputs.variant }})
+run-name: vLLM Ascend ${{ inputs.ascend_commit }} (${{ inputs.variant }}, publish=${{ inputs.publish }})
 
 on:
   workflow_dispatch:
@@ -17,6 +17,11 @@ on:
           - all
           - a2
           - a3
+      publish:
+        description: Push to atlas-ci (false builds and validates locally without Quay credentials)
+        required: true
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -68,6 +73,7 @@ jobs:
       IMAGE_TAG: ${{ matrix.image_tag }}
       SOC_VERSION: ${{ matrix.soc_version }}
       DOCKERFILE: ${{ matrix.dockerfile }}
+      PUBLISH_IMAGE: ${{ inputs.publish }}
     steps:
       - name: Check out build configuration
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -77,10 +83,11 @@ jobs:
       - name: Identify build recipe
         id: recipe
         env:
-          RECIPE: ${{ hashFiles('.github/workflows/build-vllm-ascend.yml', 'scripts/resolve_ascend_build.py') }}
+          RECIPE: ${{ hashFiles('.github/workflows/build-vllm-ascend.yml', 'scripts/resolve_ascend_build.py', 'scripts/read_oci_config.py') }}
         run: echo "id=${RECIPE}" >> "${GITHUB_OUTPUT}"
 
       - name: Log in to atlas-ci on Quay
+        if: inputs.publish
         env:
           ATLAS_CI_QUAY_USERNAME: ${{ secrets.ATLAS_CI_QUAY_USERNAME }}
           ATLAS_CI_QUAY_TOKEN: ${{ secrets.ATLAS_CI_QUAY_TOKEN }}
@@ -97,6 +104,11 @@ jobs:
           BUILD_RECIPE: ${{ steps.recipe.outputs.id }}
         run: |
           set -euo pipefail
+          if [[ "${PUBLISH_IMAGE}" != "true" ]]; then
+            echo "Validation mode: always build locally; skip the target registry."
+            echo "should_build=true" >> "${GITHUB_OUTPUT}"
+            exit 0
+          fi
           image_json="${RUNNER_TEMP}/ascend-existing-image.json"
           error_log="${RUNNER_TEMP}/ascend-inspect-error.txt"
           if docker buildx imagetools inspect "${IMAGE}:${IMAGE_TAG}" \
@@ -185,9 +197,14 @@ jobs:
         run: |
           set -euo pipefail
           metadata_file="${RUNNER_TEMP}/ascend-build-metadata.json"
-          cache_args=()
+          cache_args=(--cache-to type=inline)
           if [[ -n "${CACHE_FROM}" ]]; then
             cache_args+=(--cache-from "${CACHE_FROM}")
+          fi
+          if [[ "${PUBLISH_IMAGE}" == "true" ]]; then
+            output="type=image,name=${IMAGE},push-by-digest=true,name-canonical=true,push=true"
+          else
+            output="type=oci,dest=${RUNNER_TEMP}/ascend-oci,tar=false"
           fi
           docker buildx build \
             --platform linux/arm64 \
@@ -207,10 +224,9 @@ jobs:
             --label "io.vllm-ascend.build-revision=${BUILD_REVISION}" \
             --label "io.vllm-ascend.build-recipe=${BUILD_RECIPE}" \
             "${cache_args[@]}" \
-            --cache-to type=inline \
             --provenance=false \
             --sbom=false \
-            --output "type=image,name=${IMAGE},push-by-digest=true,name-canonical=true,push=true" \
+            --output "${output}" \
             --metadata-file "${metadata_file}" \
             ascend
           digest="$(jq -er '."containerimage.digest"' "${metadata_file}")"
@@ -224,8 +240,15 @@ jobs:
           BUILD_RECIPE: ${{ steps.recipe.outputs.id }}
         run: |
           set -euo pipefail
-          docker buildx imagetools inspect "${IMAGE}@${BUILD_DIGEST}" --format '{{json .Image}}' | \
-            jq -e --arg ascend "${ASCEND_COMMIT}" --arg vllm "${VLLM_COMMIT}" \
+          image_config="${RUNNER_TEMP}/ascend-built-config.json"
+          if [[ "${PUBLISH_IMAGE}" == "true" ]]; then
+            docker buildx imagetools inspect "${IMAGE}@${BUILD_DIGEST}" \
+              --format '{{json .Image}}' > "${image_config}"
+          else
+            python3 scripts/read_oci_config.py \
+              --layout "${RUNNER_TEMP}/ascend-oci" --digest "${BUILD_DIGEST}" > "${image_config}"
+          fi
+          jq -e --arg ascend "${ASCEND_COMMIT}" --arg vllm "${VLLM_COMMIT}" \
               --arg soc "${SOC_VERSION}" --arg recipe "${BUILD_RECIPE}" '
                 .architecture == "arm64" and .os == "linux" and
                 .config.Labels["org.opencontainers.image.revision"] == $ascend and
@@ -233,10 +256,18 @@ jobs:
                 .config.Labels["io.vllm-ascend.soc-version"] == $soc and
                 .config.Labels["io.vllm-ascend.build-recipe"] == $recipe and
                 ((.config.Env // []) | index("SOC_VERSION=" + $soc) != null)
-              '
+              ' "${image_config}"
+
+      - name: Report local validation
+        if: ${{ !inputs.publish && steps.existing.outputs.should_build == 'true' }}
+        env:
+          BUILD_DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          printf '\nLocal build and metadata validation passed for %s:%s.\n\nDigest: %s\n\nNo image was pushed to Quay.\n' \
+            "${IMAGE}" "${IMAGE_TAG}" "${BUILD_DIGEST}" >> "${GITHUB_STEP_SUMMARY}"
 
       - name: Publish and verify destination tag
-        if: steps.existing.outputs.should_build == 'true'
+        if: inputs.publish && steps.existing.outputs.should_build == 'true'
         env:
           BUILD_DIGEST: ${{ steps.build.outputs.digest }}
         run: |
@@ -252,5 +283,5 @@ jobs:
             "${IMAGE}" "${IMAGE_TAG}" "${IMAGE}" "${published_digest}" >> "${GITHUB_STEP_SUMMARY}"
 
       - name: Log out of Quay
-        if: always()
+        if: always() && inputs.publish
         run: docker logout quay.io

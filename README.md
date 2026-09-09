@@ -70,6 +70,7 @@ falling back to the upstream default release tag.
 | --- | --- | --- |
 | `ascend_commit` | Yes | Full 40-character SHA in `vllm-project/vllm-ascend` |
 | `variant` | Yes; default `all` | `a2`, `a3`, or `all`; both build natively for `linux/arm64` |
+| `publish` | Yes; default `false` | `false`: full local build and validation; `true`: publish to atlas-ci |
 
 | Variant | Dockerfile from the pinned commit | SOC_VERSION |
 | --- | --- | --- |
@@ -78,7 +79,7 @@ falling back to the upstream default release tag.
 
 ### Separate atlas-ci credentials
 
-Add both as **repository Secrets**, not Variables, in Settings → Secrets and
+For `publish=true`, add both as **repository Secrets**, not Variables, in Settings → Secrets and
 variables → Actions:
 
 - `ATLAS_CI_QUAY_USERNAME`: the Quay user/robot name with access to the target.
@@ -86,6 +87,8 @@ variables → Actions:
   `quay.io/atlas-ci/vllm-ascend`.
 
 These credentials are separate from the existing Vime `QUAY_*` secrets.
+Validation with `publish=false` does not use Quay credentials or inspect the
+destination repository; public build dependencies are still downloaded.
 
 ### Historical release prefix
 
@@ -119,7 +122,15 @@ For example, Ascend `f8481287a07cd7c407a3142f5d4188d71d964467` records vLLM
 ```bash
 gh workflow run build-vllm-ascend.yml --repo Meihan-chen/vime-build \
   -f ascend_commit=f8481287a07cd7c407a3142f5d4188d71d964467 \
-  -f variant=all
+  -f variant=all -f publish=true
+```
+
+For a full build without uploading images (no Quay credentials needed):
+
+```bash
+gh workflow run build-vllm-ascend.yml --repo Meihan-chen/vime-build \
+  -f ascend_commit=fd815467c221ee600137f6bdd53fe354d5e7c999 \
+  -f variant=all -f publish=false
 ```
 
 To preview resolution locally without building or pushing an image:
@@ -158,6 +169,12 @@ source labels and SOC environment, then publish the final tag and verify its
 digest. They do not publish a rolling `main` or `latest` tag. A2/A3 failures are
 independent. GitHub-hosted CPU runners do not validate NPU execution; source
 pinning also does not freeze mutable CANN base tags or unpinned APT/pip packages.
+
+With `publish=false`, the job always builds, exports a local OCI layout on the
+ephemeral runner, validates the manifest/config hashes and the same source/SOC
+metadata, and reports the local digest. It skips login, destination lookup,
+digest upload, and tag publication. No image or image archive is uploaded. This
+mode validates the build/export path but cannot validate Quay write permissions.
 
 Resolver tests and workflow linting:
 

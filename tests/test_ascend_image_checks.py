@@ -42,7 +42,7 @@ def image_config():
 
 
 class ImageChecksTests(unittest.TestCase):
-    def run_step(self, response, error="", step="Check existing image and protect tag identity"):
+    def run_step(self, response, error="", step="Check existing image and protect tag identity", publish=True):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             docker = root / "docker"
@@ -66,6 +66,7 @@ class ImageChecksTests(unittest.TestCase):
                 "SOC_VERSION": "ascend910_9391", "BUILD_RECIPE": "recipe-1",
                 "BUILD_DIGEST": DIGEST, "IMAGE": "quay.io/atlas-ci/vllm-ascend",
                 "IMAGE_TAG": "v0.28.0-f848128-a3",
+                "PUBLISH_IMAGE": str(publish).lower(),
             }
             result = subprocess.run(
                 ["/bin/bash", "-c", workflow_script(step)], env=env,
@@ -77,6 +78,11 @@ class ImageChecksTests(unittest.TestCase):
         result, outputs = self.run_step({"image": image_config(), "manifest": {"digest": DIGEST}})
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("should_build=false", outputs)
+
+    def test_validation_always_builds_without_contacting_target_registry(self):
+        result, outputs = self.run_step({}, error="registry must not be contacted", publish=False)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("should_build=true", outputs)
 
     def test_seven_character_collision_is_rejected(self):
         config = image_config()
