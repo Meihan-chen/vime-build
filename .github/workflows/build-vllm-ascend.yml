@@ -1,0 +1,256 @@
+name: Build pinned vLLM Ascend image
+run-name: vLLM Ascend ${{ inputs.ascend_commit }} (${{ inputs.variant }})
+
+on:
+  workflow_dispatch:
+    inputs:
+      ascend_commit:
+        description: Full 40-character vllm-project/vllm-ascend commit SHA
+        required: true
+        type: string
+      variant:
+        description: Ascend hardware variant (linux/arm64)
+        required: true
+        type: choice
+        default: all
+        options:
+          - all
+          - a2
+          - a3
+
+permissions:
+  contents: read
+
+env:
+  IMAGE: quay.io/atlas-ci/vllm-ascend
+
+jobs:
+  resolve:
+    name: Resolve commits and historical release
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      ascend_commit: ${{ steps.versions.outputs.ascend_commit }}
+      vllm_commit: ${{ steps.versions.outputs.vllm_commit }}
+      matrix: ${{ steps.versions.outputs.matrix }}
+    steps:
+      - name: Check out build configuration
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Resolve pinned sources and release prefix
+        id: versions
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ASCEND_COMMIT_INPUT: ${{ inputs.ascend_commit }}
+          VARIANT_INPUT: ${{ inputs.variant }}
+        run: |
+          python3 scripts/resolve_ascend_build.py \
+            --ascend-commit "${ASCEND_COMMIT_INPUT}" \
+            --variant "${VARIANT_INPUT}"
+
+  build:
+    name: Build vLLM Ascend (${{ matrix.variant }}, arm64)
+    needs: resolve
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.resolve.outputs.matrix) }}
+    concurrency:
+      # Serialize by destination tag, including possible seven-character SHA collisions.
+      group: atlas-ci-vllm-ascend-${{ matrix.image_tag }}
+      cancel-in-progress: false
+    env:
+      ASCEND_COMMIT: ${{ needs.resolve.outputs.ascend_commit }}
+      VLLM_COMMIT: ${{ needs.resolve.outputs.vllm_commit }}
+      IMAGE_TAG: ${{ matrix.image_tag }}
+      SOC_VERSION: ${{ matrix.soc_version }}
+      DOCKERFILE: ${{ matrix.dockerfile }}
+    steps:
+      - name: Check out build configuration
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Identify build recipe
+        id: recipe
+        env:
+          RECIPE: ${{ hashFiles('.github/workflows/build-vllm-ascend.yml', 'scripts/resolve_ascend_build.py') }}
+        run: echo "id=${RECIPE}" >> "${GITHUB_OUTPUT}"
+
+      - name: Log in to atlas-ci on Quay
+        env:
+          ATLAS_CI_QUAY_USERNAME: ${{ secrets.ATLAS_CI_QUAY_USERNAME }}
+          ATLAS_CI_QUAY_TOKEN: ${{ secrets.ATLAS_CI_QUAY_TOKEN }}
+        run: |
+          set -euo pipefail
+          : "${ATLAS_CI_QUAY_USERNAME:?Configure the ATLAS_CI_QUAY_USERNAME repository secret}"
+          : "${ATLAS_CI_QUAY_TOKEN:?Configure the ATLAS_CI_QUAY_TOKEN repository secret}"
+          printf '%s' "${ATLAS_CI_QUAY_TOKEN}" | \
+            docker login quay.io --username "${ATLAS_CI_QUAY_USERNAME}" --password-stdin
+
+      - name: Check existing image and protect tag identity
+        id: existing
+        env:
+          BUILD_RECIPE: ${{ steps.recipe.outputs.id }}
+        run: |
+          set -euo pipefail
+          image_json="${RUNNER_TEMP}/ascend-existing-image.json"
+          error_log="${RUNNER_TEMP}/ascend-inspect-error.txt"
+          if docker buildx imagetools inspect "${IMAGE}:${IMAGE_TAG}" \
+              --format '{{json .}}' > "${image_json}" 2> "${error_log}"; then
+            if ! jq -e --arg ascend "${ASCEND_COMMIT}" --arg vllm "${VLLM_COMMIT}" \
+                --arg soc "${SOC_VERSION}" '
+                  .image.architecture == "arm64" and .image.os == "linux" and
+                  .image.config.Labels["org.opencontainers.image.revision"] == $ascend and
+                  .image.config.Labels["io.vllm-ascend.vllm-revision"] == $vllm and
+                  .image.config.Labels["io.vllm-ascend.soc-version"] == $soc and
+                  ((.image.config.Env // []) | index("SOC_VERSION=" + $soc) != null)
+                ' "${image_json}" > /dev/null; then
+              echo "::error::${IMAGE_TAG} already exists with different or missing source/platform metadata. Refusing to overwrite it."
+              exit 1
+            fi
+            if jq -e --arg recipe "${BUILD_RECIPE}" \
+                '.image.config.Labels["io.vllm-ascend.build-recipe"] == $recipe' \
+                "${image_json}" > /dev/null; then
+              digest="$(jq -er '.manifest.digest' "${image_json}")"
+              [[ "${digest}" =~ ^sha256:[0-9a-f]{64}$ ]]
+              echo "should_build=false" >> "${GITHUB_OUTPUT}"
+              echo "Reusing ${IMAGE}:${IMAGE_TAG} (${digest})"
+              printf '\nReused %s:%s\n\nDigest: %s@%s\n' \
+                "${IMAGE}" "${IMAGE_TAG}" "${IMAGE}" "${digest}" >> "${GITHUB_STEP_SUMMARY}"
+              exit 0
+            fi
+            echo "Source identity matches; the build recipe changed. Rebuilding."
+            echo "cache_from=type=registry,ref=${IMAGE}:${IMAGE_TAG}" >> "${GITHUB_OUTPUT}"
+          elif grep -Eiq 'manifest unknown|manifest_unknown|: not found' "${error_log}"; then
+            echo "${IMAGE}:${IMAGE_TAG} does not exist yet."
+          else
+            cat "${error_log}" >&2
+            echo "::error::Cannot inspect the target image; registry/authentication errors are not treated as a missing tag."
+            exit 1
+          fi
+          echo "should_build=true" >> "${GITHUB_OUTPUT}"
+
+      - name: Check out pinned vLLM Ascend and submodules
+        if: steps.existing.outputs.should_build == 'true'
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          repository: vllm-project/vllm-ascend
+          ref: ${{ needs.resolve.outputs.ascend_commit }}
+          path: ascend
+          submodules: recursive
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Verify source checkout and Dockerfile support
+        if: steps.existing.outputs.should_build == 'true'
+        run: |
+          set -euo pipefail
+          [[ "$(git -C ascend rev-parse HEAD)" == "${ASCEND_COMMIT}" ]]
+          python3 -c 'import os; from pathlib import Path; actual = Path("ascend/.github/vllm-main-verified.commit").read_text().strip().lower(); assert actual == os.environ["VLLM_COMMIT"], "verified vLLM commit differs from the resolved commit"'
+          # Never allow an unsupported historical Dockerfile to fall back to VLLM_TAG.
+          grep -Eq '^ARG VLLM_COMMIT(=|$)' "ascend/${DOCKERFILE}"
+          git -C ascend submodule status --recursive
+
+      - name: Reclaim hosted runner disk space
+        if: steps.existing.outputs.should_build == 'true'
+        run: |
+          set -euo pipefail
+          df -h /
+          sudo rm -rf \
+            /opt/ghc \
+            /opt/hostedtoolcache \
+            /usr/local/.ghcup \
+            /usr/local/lib/android \
+            /usr/share/dotnet \
+            /usr/share/swift
+          docker system prune --all --force --volumes
+          df -h /
+
+      - name: Set up Docker Buildx
+        if: steps.existing.outputs.should_build == 'true'
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+
+      - name: Build pinned source image
+        if: steps.existing.outputs.should_build == 'true'
+        id: build
+        env:
+          BUILD_RECIPE: ${{ steps.recipe.outputs.id }}
+          BUILD_REVISION: ${{ github.sha }}
+          BUILD_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          CACHE_FROM: ${{ steps.existing.outputs.cache_from }}
+        run: |
+          set -euo pipefail
+          metadata_file="${RUNNER_TEMP}/ascend-build-metadata.json"
+          cache_args=()
+          if [[ -n "${CACHE_FROM}" ]]; then
+            cache_args+=(--cache-from "${CACHE_FROM}")
+          fi
+          docker buildx build \
+            --platform linux/arm64 \
+            --file "ascend/${DOCKERFILE}" \
+            --build-arg "VLLM_COMMIT=${VLLM_COMMIT}" \
+            --build-arg "SOC_VERSION=${SOC_VERSION}" \
+            --build-arg BUILD_TYPE=release \
+            --build-arg PIP_INDEX_URL=https://pypi.org/simple \
+            --build-arg MOONCAKE_INDEX_URL=https://pypi.org/simple \
+            --label org.opencontainers.image.source=https://github.com/vllm-project/vllm-ascend \
+            --label "org.opencontainers.image.revision=${ASCEND_COMMIT}" \
+            --label "org.opencontainers.image.version=${IMAGE_TAG}" \
+            --label "org.opencontainers.image.created=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --label "io.vllm-ascend.vllm-revision=${VLLM_COMMIT}" \
+            --label "io.vllm-ascend.soc-version=${SOC_VERSION}" \
+            --label "io.vllm-ascend.build-url=${BUILD_URL}" \
+            --label "io.vllm-ascend.build-revision=${BUILD_REVISION}" \
+            --label "io.vllm-ascend.build-recipe=${BUILD_RECIPE}" \
+            "${cache_args[@]}" \
+            --cache-to type=inline \
+            --provenance=false \
+            --sbom=false \
+            --output "type=image,name=${IMAGE},push-by-digest=true,name-canonical=true,push=true" \
+            --metadata-file "${metadata_file}" \
+            ascend
+          digest="$(jq -er '."containerimage.digest"' "${metadata_file}")"
+          [[ "${digest}" =~ ^sha256:[0-9a-f]{64}$ ]]
+          echo "digest=${digest}" >> "${GITHUB_OUTPUT}"
+
+      - name: Verify built image before publishing tag
+        if: steps.existing.outputs.should_build == 'true'
+        env:
+          BUILD_DIGEST: ${{ steps.build.outputs.digest }}
+          BUILD_RECIPE: ${{ steps.recipe.outputs.id }}
+        run: |
+          set -euo pipefail
+          docker buildx imagetools inspect "${IMAGE}@${BUILD_DIGEST}" --format '{{json .Image}}' | \
+            jq -e --arg ascend "${ASCEND_COMMIT}" --arg vllm "${VLLM_COMMIT}" \
+              --arg soc "${SOC_VERSION}" --arg recipe "${BUILD_RECIPE}" '
+                .architecture == "arm64" and .os == "linux" and
+                .config.Labels["org.opencontainers.image.revision"] == $ascend and
+                .config.Labels["io.vllm-ascend.vllm-revision"] == $vllm and
+                .config.Labels["io.vllm-ascend.soc-version"] == $soc and
+                .config.Labels["io.vllm-ascend.build-recipe"] == $recipe and
+                ((.config.Env // []) | index("SOC_VERSION=" + $soc) != null)
+              '
+
+      - name: Publish and verify destination tag
+        if: steps.existing.outputs.should_build == 'true'
+        env:
+          BUILD_DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          set -euo pipefail
+          docker buildx imagetools create --prefer-index=false \
+            --tag "${IMAGE}:${IMAGE_TAG}" "${IMAGE}@${BUILD_DIGEST}"
+          published_digest="$(
+            docker buildx imagetools inspect "${IMAGE}:${IMAGE_TAG}" \
+              --format '{{json .Manifest}}' | jq -er '.digest'
+          )"
+          [[ "${published_digest}" == "${BUILD_DIGEST}" ]]
+          printf '\nPublished %s:%s\n\nDigest: %s@%s\n' \
+            "${IMAGE}" "${IMAGE_TAG}" "${IMAGE}" "${published_digest}" >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Log out of Quay
+        if: always()
+        run: docker logout quay.io

@@ -9,7 +9,7 @@ Atlas A3: quay.io/ascend/vime:vime-latest
 Atlas A2: quay.io/ascend/vime:vime-a2-latest
 ```
 
-No commit-specific image tags are created.
+The Vime workflow does not create commit-specific image tags.
 
 ## Triggering
 
@@ -52,3 +52,116 @@ Ascend NPU, so the workflow does not run hardware tests.
 The image is large, so the workflow reclaims preinstalled SDK space before
 building. If the standard runner still runs out of disk, switch the job to an
 ARM64 runner with a larger disk.
+
+## Independent pinned vLLM Ascend builds
+
+[`build-vllm-ascend.yml`](.github/workflows/build-vllm-ascend.yml) is a separate
+workflow with **only a manual `workflow_dispatch` trigger**. It does not call or
+update the Vime workflow and does not run on a schedule, push, or PR event.
+
+It builds the upstream vLLM Ascend Dockerfiles from a full Ascend commit SHA.
+The matching vLLM SHA is read from `.github/vllm-main-verified.commit` at that
+exact Ascend commit. The build checks out Ascend (including its submodules),
+rechecks the verified file, and passes the full vLLM SHA as `VLLM_COMMIT`.
+Missing/invalid commits or unsupported Dockerfiles cause an error instead of
+falling back to the upstream default release tag.
+
+| Input | Required | Meaning |
+| --- | --- | --- |
+| `ascend_commit` | Yes | Full 40-character SHA in `vllm-project/vllm-ascend` |
+| `variant` | Yes; default `all` | `a2`, `a3`, or `all`; both build natively for `linux/arm64` |
+
+| Variant | Dockerfile from the pinned commit | SOC_VERSION |
+| --- | --- | --- |
+| A2 | `Dockerfile` | `ascend910b1` |
+| A3 | `Dockerfile.a3` | `ascend910_9391` |
+
+### Separate atlas-ci credentials
+
+Add both as **repository Secrets**, not Variables, in Settings → Secrets and
+variables → Actions:
+
+- `ATLAS_CI_QUAY_USERNAME`: the Quay user/robot name with access to the target.
+- `ATLAS_CI_QUAY_TOKEN`: its token with write access to
+  `quay.io/atlas-ci/vllm-ascend`.
+
+These credentials are separate from the existing Vime `QUAY_*` secrets.
+
+### Historical release prefix
+
+The resolver uses the vLLM commit's **committer timestamp** as the cutoff. It
+reads all pages of GitHub Releases, keeps non-draft, non-prerelease releases
+whose tags exactly match `vMAJOR.MINOR.PATCH`, and selects the most recently
+published release **strictly before** that cutoff. It resolves each candidate
+tag to its commit (including annotated tags) and excludes tags pointing to the
+vLLM commit itself. Release `created_at`, `target_commitish`, today's latest
+tag, version-number ordering, and `git describe` are not used for selection.
+
+If two eligible releases have the same publication timestamp, the higher
+numeric version wins. If no eligible release exists, resolution fails with an
+explanation. The prefix describes release timing, not Git ancestry or a claim
+that the image contains the release's exact code.
+
+Only the **image tag** uses this release prefix. The actual vLLM code remains
+pinned to the SHA from the verified file:
+
+```text
+quay.io/atlas-ci/vllm-ascend:<previous-release>-<Ascend-first-7-SHA>-a2
+quay.io/atlas-ci/vllm-ascend:<previous-release>-<Ascend-first-7-SHA>-a3
+```
+
+For example, Ascend `f8481287a07cd7c407a3142f5d4188d71d964467` records vLLM
+`b2f685834a6456197e7033966fdef52a23f1abcd` (2026-08-29). Its prefix is `v0.28.0`
+(published 2026-08-26), giving `v0.28.0-f848128-a2` and `v0.28.0-f848128-a3`.
+
+### Run and inspect
+
+```bash
+gh workflow run build-vllm-ascend.yml --repo Meihan-chen/vime-build \
+  -f ascend_commit=f8481287a07cd7c407a3142f5d4188d71d964467 \
+  -f variant=all
+```
+
+To preview resolution locally without building or pushing an image:
+
+```bash
+python3 scripts/resolve_ascend_build.py \
+  --ascend-commit f8481287a07cd7c407a3142f5d4188d71d964467 --variant all
+```
+
+The resolver requires Python 3.10+ and an authenticated `gh` CLI (Actions uses
+its built-in `GITHUB_TOKEN`). Its JSON output and Actions summary show both full
+SHAs, the cutoff timestamp, selected release/publication time, and image tags.
+
+Each image records these labels:
+
+| Label | Value |
+| --- | --- |
+| `org.opencontainers.image.source` | Upstream vLLM Ascend repository URL |
+| `org.opencontainers.image.revision` | Full Ascend SHA |
+| `org.opencontainers.image.version` | Complete generated image tag |
+| `org.opencontainers.image.created` | UTC build timestamp |
+| `io.vllm-ascend.vllm-revision` | Full verified vLLM SHA |
+| `io.vllm-ascend.soc-version` | A2/A3 SOC version |
+| `io.vllm-ascend.build-url` | GitHub Actions Run URL |
+| `io.vllm-ascend.build-revision` | Build-configuration repository SHA |
+| `io.vllm-ascend.build-recipe` | Hash of this workflow and resolver |
+
+Matching source commits, platform, SOC, and build recipe reuse an existing
+image. A tag that has different or missing source/platform metadata is rejected
+instead of overwritten, including a seven-character SHA collision. Changing
+the build recipe can rebuild the same source tag, so consumers needing the
+exact artifact should use its digest, reported in the Actions summary.
+
+Builds use an inline registry cache, upload by digest, verify the architecture,
+source labels and SOC environment, then publish the final tag and verify its
+digest. They do not publish a rolling `main` or `latest` tag. A2/A3 failures are
+independent. GitHub-hosted CPU runners do not validate NPU execution; source
+pinning also does not freeze mutable CANN base tags or unpinned APT/pip packages.
+
+Resolver tests and workflow linting:
+
+```bash
+python3 -m unittest discover -v
+actionlint
+```
