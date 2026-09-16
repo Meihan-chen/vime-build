@@ -9,7 +9,8 @@ Atlas A3: quay.io/ascend/vime:vime-latest
 Atlas A2: quay.io/ascend/vime:vime-a2-latest
 ```
 
-The Vime workflow does not create commit-specific image tags.
+The daily Vime build publishes only latest tags. Commit tags can be added to
+existing images using the separate manual workflow described below.
 
 ## Triggering
 
@@ -52,6 +53,50 @@ Ascend NPU, so the workflow does not run hardware tests.
 The image is large, so the workflow reclaims preinstalled SDK space before
 building. If the standard runner still runs out of disk, switch the job to an
 ARM64 runner with a larger disk.
+
+## Manually tag current Vime latest images with their commit
+
+[`tag-vime-commit.yml`](.github/workflows/tag-vime-commit.yml), **Tag Vime latest
+with commit**, runs only through `workflow_dispatch`. Select `variant=all`,
+`a2`, or `a3`. The default `publish=false` previews the operation; set
+`publish=true` to create tags using the existing `QUAY_USERNAME` / `QUAY_TOKEN`
+Secrets for `quay.io/ascend/vime`.
+
+| Variant | Source tag | New tag |
+| --- | --- | --- |
+| A2 | `quay.io/ascend/vime:vime-a2-latest` | `quay.io/ascend/vime:vime-<Vime-first-7-SHA>-a2` |
+| A3 | `quay.io/ascend/vime:vime-latest` | `quay.io/ascend/vime:vime-<Vime-first-7-SHA>-a3` |
+
+The SHA comes from the published image's full `org.opencontainers.image.revision`
+label, not the current GitHub branch HEAD or the vLLM/Ascend dependency versions.
+The script captures the source digest first, then reads metadata and creates the
+new tag from that immutable digest. It does not build, pull image layers, change
+the contents/labels, or move/delete either latest tag. Both references identify
+the same image; a later daily build may move latest while the commit tag remains.
+
+All selected variants are checked before any write. A missing/invalid revision,
+unexpected source/platform/SOC, or a destination pointing to another digest
+fails explicitly. An already matching destination is a successful no-op. A
+different digest is never overwritten, even when the commit is unchanged but
+dependencies were rebuilt. If A2/A3 latest images contain different commits,
+each gets its own correctly derived tag, shown in the Actions summary.
+
+Preview the current latest images:
+
+```bash
+gh workflow run tag-vime-commit.yml --repo Meihan-chen/vime-build \
+  -f variant=all -f publish=false
+```
+
+Publish the commit tags manually:
+
+```bash
+gh workflow run tag-vime-commit.yml --repo Meihan-chen/vime-build \
+  -f variant=all -f publish=true
+```
+
+Each run snapshots latest afresh. A preview does not freeze a later run's
+source. Inspect the summary for the full source SHA, digest and destination.
 
 ## Independent pinned vLLM Ascend builds
 
