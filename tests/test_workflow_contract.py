@@ -46,11 +46,12 @@ class WorkflowContractTests(unittest.TestCase):
         workflow = self.workflow()
 
         self.assertIn("target_tag: vime-latest", workflow)
-        self.assertIn("base_image_tag: v0.22.1rc1-a3", workflow)
         self.assertIn("soc_version: ascend910_9391", workflow)
         self.assertIn("target_tag: vime-a2-latest", workflow)
-        self.assertIn("base_image_tag: v0.22.1rc1", workflow)
         self.assertIn("soc_version: ascend910b1", workflow)
+        self.assertIn("Resolve base image from the pinned Dockerfile", workflow)
+        self.assertIn('tag.endswith("-a3")', workflow)
+        self.assertIn("--build-arg \"BASE_IMAGE=${BASE_IMAGE}\"", workflow)
 
     def test_publishes_only_the_a3_and_a2_latest_tags(self) -> None:
         workflow = self.workflow()
@@ -69,6 +70,8 @@ class WorkflowContractTests(unittest.TestCase):
 
         self.assertIn("org.opencontainers.image.revision", workflow)
         self.assertIn("io.vime.base-image-tag", workflow)
+        self.assertIn("io.vime.base-image-repository", workflow)
+        self.assertIn("io.vime.base-image-digest", workflow)
         self.assertIn("io.vime.soc-version", workflow)
         self.assertIn("VIME_COMMIT", workflow)
         self.assertIn("BASE_IMAGE_TAG", workflow)

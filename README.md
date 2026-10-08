@@ -16,9 +16,12 @@ existing images using the separate manual workflow described below.
 
 [The workflow](.github/workflows/build-vime-npu.yml) polls the upstream branch
 once per day at 18:17 UTC (02:17 Asia/Shanghai) and can also be started manually
-from the Actions page. Each variant compares the upstream HEAD, base-image tag,
-and SOC version with labels on its published image and skips an unchanged build
-configuration.
+from the Actions page. Each run checks out a pinned Vime commit and reads the
+base-image repository and tag from that checkout's `docker/Dockerfile.npu`.
+For A2 it changes only the Dockerfile's trailing `-a3` suffix to `-a2`. It
+resolves that tag to a digest and builds `FROM` the immutable digest. Each
+variant compares the Vime HEAD, base-image digest, and SOC version with its
+published image before deciding whether to rebuild.
 
 Because GitHub Actions cannot subscribe to a push event in an unrelated
 repository, polling is used instead of an upstream `push` trigger.
@@ -39,9 +42,9 @@ in the workflow file.
 
 The A3 and A2 matrix jobs run natively on GitHub's `ubuntu-24.04-arm` runners
 and produce only `linux/arm64`. Each job pushes its completed result by digest
-without a visible temporary tag, then rechecks the upstream HEAD before moving
-its latest tag to that digest. A build that became stale while running is not
-promoted.
+without a visible temporary tag, then rechecks both the upstream Vime HEAD and
+resolved base-image digest before moving its latest tag to that digest. A build
+that became stale while running is not promoted.
 
 Until the upstream Dockerfile natively supports the required build arguments,
 the job applies compatibility patches so `/root/vime` is checked out at the
