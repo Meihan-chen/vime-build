@@ -51,7 +51,7 @@ class WorkflowContractTests(unittest.TestCase):
         self.assertIn("soc_version: ascend910b1", workflow)
         self.assertIn("Resolve base image from the pinned Dockerfile", workflow)
         self.assertIn('tag.endswith("-a3")', workflow)
-        self.assertIn("--build-arg \"BASE_IMAGE=${BASE_IMAGE}\"", workflow)
+        self.assertIn("--build-arg \"BASE_IMAGE_REF=${base_image_ref}\"", workflow)
 
     def test_publishes_only_the_a3_and_a2_latest_tags(self) -> None:
         workflow = self.workflow()

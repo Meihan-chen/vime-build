@@ -276,6 +276,7 @@ jobs:
           set -euo pipefail
           metadata_file="${RUNNER_TEMP}/vime-build-metadata.json"
 
+          base_image_ref="${BASE_IMAGE_REPOSITORY}@${BASE_IMAGE_DIGEST}"
           cache_args=()
           if docker buildx imagetools inspect "${IMAGE}:${TARGET_TAG}" >/dev/null 2>&1; then
             cache_args+=(--cache-from "type=registry,ref=${IMAGE}:${TARGET_TAG}")
@@ -284,7 +285,7 @@ jobs:
           docker buildx build \
             --platform linux/arm64 \
             --file upstream/docker/Dockerfile.npu \
-            --build-arg "BASE_IMAGE=${BASE_IMAGE}" \
+            --build-arg "BASE_IMAGE_REF=${base_image_ref}" \
             --build-arg "SOC_VERSION=${SOC_VERSION}" \
             --build-arg "VIME_COMMIT=${SOURCE_SHA}" \
             --label "org.opencontainers.image.source=https://github.com/${UPSTREAM_REPOSITORY}" \
