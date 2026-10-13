@@ -83,7 +83,7 @@ jobs:
       - name: Identify build recipe
         id: recipe
         env:
-          RECIPE: ${{ hashFiles('.github/workflows/build-vllm-ascend.yml', 'scripts/resolve_ascend_build.py', 'scripts/read_oci_config.py') }}
+          RECIPE: ${{ hashFiles('.github/workflows/build-vllm-ascend.yml', 'scripts/resolve_ascend_build.py', 'scripts/read_oci_config.py', 'scripts/patch_vllm_rust_build.py') }}
         run: echo "id=${RECIPE}" >> "${GITHUB_OUTPUT}"
 
       - name: Log in to atlas-ci on Quay
@@ -166,6 +166,14 @@ jobs:
           # Never allow an unsupported historical Dockerfile to fall back to VLLM_TAG.
           grep -Eq '^ARG VLLM_COMMIT(=|$)' "ascend/${DOCKERFILE}"
           git -C ascend submodule status --recursive
+
+      - name: Apply temporary vLLM Rust script path patch
+        if: steps.existing.outputs.should_build == 'true'
+        run: |
+          set -euo pipefail
+          python3 scripts/patch_vllm_rust_build.py "ascend/${DOCKERFILE}"
+          git -C ascend diff --check
+          git -C ascend diff -- "${DOCKERFILE}"
 
       - name: Reclaim hosted runner disk space
         if: steps.existing.outputs.should_build == 'true'
