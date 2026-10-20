@@ -1,5 +1,7 @@
 import unittest
 from pathlib import Path
+import subprocess
+import tempfile
 
 from scripts.patch_vllm_rust_build import patch_dockerfile_text
 
@@ -19,17 +21,46 @@ class PatchVllmRustBuildTests(unittest.TestCase):
         self.assertIn("./tools/build_rust.sh; \\", patched)
         self.assertIn("./build_rust.sh; \\", patched)
 
-    def test_adds_the_same_runtime_fallback_when_upstream_uses_tools_path(self):
+    def test_leaves_the_fixed_tools_path_unchanged(self):
         source = "    ./tools/build_rust.sh\n"
 
         patched, changed = patch_dockerfile_text(source)
 
-        self.assertTrue(changed)
-        self.assertIn("if [ -f ./tools/build_rust.sh ]; then", patched)
-        self.assertIn("elif [ -f ./build_rust.sh ]; then", patched)
+        self.assertFalse(changed)
+        self.assertEqual(patched, source)
+
+    def test_leaves_the_current_upstream_bash_install_step_unchanged(self):
+        source = r"""RUN cd /vllm-workspace/vllm && \
+    export PROTOC_INCLUDE=/usr/include && \
+    python3 -m pip install -r requirements/build/rust.txt && \
+    bash tools/build_rust.sh
+"""
+        patched, changed = patch_dockerfile_text(source)
+
+        self.assertFalse(changed)
+        self.assertEqual(patched, source)
+
+    def test_legacy_bash_invocation_runs_either_script_without_executable_bit(self):
+        for script_path in ("tools/build_rust.sh", "build_rust.sh"):
+            with self.subTest(script_path=script_path), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                script = root / script_path
+                script.parent.mkdir(parents=True, exist_ok=True)
+                script.write_text("printf 'rust build ran'\n")
+                script.chmod(0o644)
+                patched, changed = patch_dockerfile_text("    bash ./build_rust.sh\n")
+
+                result = subprocess.run(
+                    ["/bin/bash", "-c", patched], cwd=root,
+                    capture_output=True, text=True, check=False,
+                )
+
+                self.assertTrue(changed)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(result.stdout, "rust build ran")
 
     def test_is_idempotent_after_adding_the_runtime_fallback(self):
-        source = "    ./tools/build_rust.sh\n"
+        source = "    ./build_rust.sh\n"
         patched, _ = patch_dockerfile_text(source)
 
         patched_again, changed_again = patch_dockerfile_text(patched)
@@ -42,7 +73,7 @@ class PatchVllmRustBuildTests(unittest.TestCase):
             patch_dockerfile_text("RUN echo no rust build command\n")
 
     def test_fails_closed_when_both_paths_are_present(self):
-        source = "    ./build_rust.sh\n    ./tools/build_rust.sh\n"
+        source = "    ./build_rust.sh\n    bash tools/build_rust.sh\n"
 
         with self.assertRaisesRegex(ValueError, "expected exactly one"):
             patch_dockerfile_text(source)

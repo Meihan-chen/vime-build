@@ -7,13 +7,14 @@ import re
 
 
 SCRIPT_INVOCATION = re.compile(
-    r"(?m)^([ \t]*)\./(?:tools/)?build_rust\.sh[ \t]*$"
+    r"(?m)^([ \t]*)(?:bash[ \t]+(?:\./)?|\./)"
+    r"(?P<script_path>(?:tools/)?build_rust\.sh)[ \t]*$"
 )
 PATCH_MARKER = "# codex-temporary-rust-build-path-compat-v1"
 
 
 def patch_dockerfile_text(source: str) -> tuple[str, bool]:
-    """Make the single Rust build call tolerate either known vLLM path."""
+    """Adapt legacy root calls and leave upstream's fixed tools calls alone."""
     matches = list(SCRIPT_INVOCATION.finditer(source))
     if not matches and source.count(PATCH_MARKER) == 1:
         return source, False
@@ -22,13 +23,15 @@ def patch_dockerfile_text(source: str) -> tuple[str, bool]:
             "expected exactly one standalone vLLM Rust script invocation "
             "and no prior compatibility marker"
         )
+    if matches[0].group("script_path") == "tools/build_rust.sh":
+        return source, False
 
     indent = matches[0].group(1)
     replacement = "\n".join([
         f"{indent}if [ -f ./tools/build_rust.sh ]; then \\",
-        f"{indent}    ./tools/build_rust.sh; \\",
+        f"{indent}    bash ./tools/build_rust.sh; \\",
         f"{indent}elif [ -f ./build_rust.sh ]; then \\",
-        f"{indent}    ./build_rust.sh; \\",
+        f"{indent}    bash ./build_rust.sh; \\",
         f"{indent}else \\",
         f'{indent}    echo "No supported vLLM Rust build script found" >&2; exit 1; \\',
         f"{indent}fi {PATCH_MARKER}",
@@ -48,7 +51,7 @@ def main() -> None:
         args.dockerfile.write_text(patched, encoding="utf-8")
         print(f"Applied temporary Rust script compatibility patch to {args.dockerfile}")
     else:
-        print(f"Dockerfile already has the temporary Rust script compatibility patch: {args.dockerfile}")
+        print(f"No Rust script path patch needed for {args.dockerfile}")
 
 
 if __name__ == "__main__":
