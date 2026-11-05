@@ -83,7 +83,7 @@ jobs:
       - name: Identify build recipe
         id: recipe
         env:
-          RECIPE: ${{ hashFiles('.github/workflows/build-vllm-ascend.yml', 'scripts/resolve_ascend_build.py', 'scripts/read_oci_config.py', 'scripts/patch_vllm_rust_build.py') }}
+          RECIPE: ${{ hashFiles('.github/workflows/build-vllm-ascend.yml', 'scripts/resolve_ascend_build.py', 'scripts/read_oci_config.py', 'scripts/patch_vllm_rust_build.py', 'scripts/prepare_ascend_fla.py') }}
         run: echo "id=${RECIPE}" >> "${GITHUB_OUTPUT}"
 
       - name: Log in to atlas-ci on Quay
@@ -172,6 +172,17 @@ jobs:
         run: |
           set -euo pipefail
           python3 scripts/patch_vllm_rust_build.py "ascend/${DOCKERFILE}"
+          git -C ascend diff --check
+          git -C ascend diff -- "${DOCKERFILE}"
+
+      - name: Prepare and preflight FLA download
+        if: steps.existing.outputs.should_build == 'true'
+        env:
+          VARIANT: ${{ matrix.variant }}
+        run: |
+          set -euo pipefail
+          python3 scripts/prepare_ascend_fla.py "ascend/${DOCKERFILE}" \
+            --variant "${VARIANT}" --check-download
           git -C ascend diff --check
           git -C ascend diff -- "${DOCKERFILE}"
 

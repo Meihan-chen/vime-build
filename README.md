@@ -114,6 +114,11 @@ rechecks the verified file, and passes the full vLLM SHA as `VLLM_COMMIT`.
 Missing/invalid commits or unsupported Dockerfiles cause an error instead of
 falling back to the upstream default release tag.
 
+For the known FLA 26.9.1 mirror download block, a temporary adapter uses the
+official GitHub release with pinned A2/A3 ARM64 SHA256 checksums and checks the
+download before compilation. Existing GitHub downloads are preserved; unknown
+mirror versions or layouts fail early and require an adapter update.
+
 | Input | Required | Meaning |
 | --- | --- | --- |
 | `ascend_commit` | Yes | Full 40-character SHA in `vllm-project/vllm-ascend` |
