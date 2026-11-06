@@ -86,29 +86,7 @@ jobs:
             git -C upstream apply ../patches/persist-soc-version.patch
           fi
 
-          if grep -Eq '^ARG BASE_IMAGE_REF(=|$)' upstream/docker/Dockerfile.npu; then
-            echo "Upstream Dockerfile already supports digest-pinned BASE_IMAGE_REF."
-          else
-            python3 - upstream/docker/Dockerfile.npu <<'PY'
-          import re
-          import sys
-          from pathlib import Path
-
-          path = Path(sys.argv[1])
-          source = path.read_text()
-          old = "FROM ${BASE_IMAGE}:${BASE_IMAGE_TAG}"
-          if source.count(old) != 1:
-              raise SystemExit(
-                  "Expected exactly one standard BASE_IMAGE FROM line; update the build adapter for this Dockerfile."
-              )
-          source = source.replace(
-              old,
-              "ARG BASE_IMAGE_REF=$BASE_IMAGE:$BASE_IMAGE_TAG\nFROM $BASE_IMAGE_REF",
-              1,
-          )
-          path.write_text(source)
-          PY
-          fi
+          python3 scripts/pin_vime_base_image.py upstream/docker/Dockerfile.npu
           git -C upstream diff --check
 
       - name: Resolve base image from the pinned Dockerfile

@@ -23,6 +23,11 @@ resolves that tag to a digest and builds `FROM` the immutable digest. Each
 variant compares the Vime HEAD, base-image digest, and SOC version with its
 published image before deciding whether to rebuild.
 
+Single-stage and multi-stage Dockerfiles are supported. A global
+`BASE_IMAGE_REF` pins every vLLM-Ascend-based builder and runtime stage to the
+selected digest, preserving independent images such as the Rust toolchain and
+all stage aliases and cross-stage copies.
+
 Because GitHub Actions cannot subscribe to a push event in an unrelated
 repository, polling is used instead of an upstream `push` trigger.
 
