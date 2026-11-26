@@ -16,9 +16,9 @@ existing images using the separate manual workflow described below.
 ## Triggering
 
 [The workflow](.github/workflows/build-vime-npu.yml) polls the upstream branch
-once per day at 18:17 UTC (02:17 Asia/Shanghai) for all three variants. For
-manual runs from the Actions page, choose `variant=all` (default), `a2`, `a3`,
-or `a5`. Each run checks out a pinned Vime commit and reads the
+once per day at 18:17 UTC (02:17 Asia/Shanghai) for A2 and A3. For manual runs
+from the Actions page, choose `a2`, `a3`, `a5`, or `all` (default, includes
+all three variants). Each run checks out a pinned Vime commit and reads the
 base-image repository and tag from that checkout's `docker/Dockerfile.npu`.
 For each variant it changes only the trailing hardware suffix (`-a2`, `-a3`,
 or `-a5`), preserving the Dockerfile's repository and version/commit prefix. It

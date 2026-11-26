@@ -44,7 +44,7 @@ class WorkflowContractTests(unittest.TestCase):
         self.assertIn("runs-on: ubuntu-24.04-arm", workflow)
         self.assertIn("--platform linux/arm64", workflow)
 
-    def test_manual_variant_filters_matrix_and_missing_input_selects_all(self) -> None:
+    def test_manual_variant_filters_matrix_and_scheduled_runs_exclude_a5(self) -> None:
         workflow = self.workflow()
         self.assertRegex(
             workflow,
@@ -54,11 +54,13 @@ class WorkflowContractTests(unittest.TestCase):
             r"          - all\n          - a2\n          - a3\n          - a5\n",
         )
         selection = re.search(
-            r"variant: .*fromJSON\('([^']+)'\)\[inputs\.variant \|\| 'all'\]",
+            r"variant: .*fromJSON\('([^']+)'\)"
+            r"\[github\.event_name == 'schedule' && 'scheduled' \|\| inputs\.variant \|\| 'all'\]",
             workflow,
         )
-        self.assertIsNotNone(selection, "build matrix must use the dispatch choice and default to all")
+        self.assertIsNotNone(selection, "build matrix must select A2/A3 on schedule and honor manual choices")
         self.assertEqual(json.loads(selection.group(1)), {
+            "scheduled": ["a3", "a2"],
             "all": ["a3", "a2", "a5"],
             "a2": ["a2"],
             "a3": ["a3"],

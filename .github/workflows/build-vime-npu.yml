@@ -34,8 +34,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Scheduled runs have no dispatch input and select all variants.
-        variant: ${{ fromJSON('{"all":["a3","a2","a5"],"a2":["a2"],"a3":["a3"],"a5":["a5"]}')[inputs.variant || 'all'] }}
+        # Keep A5 manual-only for now.
+        variant: ${{ fromJSON('{"scheduled":["a3","a2"],"all":["a3","a2","a5"],"a2":["a2"],"a3":["a3"],"a5":["a5"]}')[github.event_name == 'schedule' && 'scheduled' || inputs.variant || 'all'] }}
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 360
     env:
