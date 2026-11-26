@@ -1,4 +1,6 @@
+import json
 from pathlib import Path
+import re
 import unittest
 
 
@@ -42,15 +44,39 @@ class WorkflowContractTests(unittest.TestCase):
         self.assertIn("runs-on: ubuntu-24.04-arm", workflow)
         self.assertIn("--platform linux/arm64", workflow)
 
+    def test_manual_variant_filters_matrix_and_missing_input_selects_all(self) -> None:
+        workflow = self.workflow()
+        self.assertRegex(
+            workflow,
+            r"workflow_dispatch:\n    inputs:\n      variant:\n"
+            r"(?:        [^\n]+\n)*?        type: choice\n"
+            r"        default: all\n        options:\n"
+            r"          - all\n          - a2\n          - a3\n          - a5\n",
+        )
+        selection = re.search(
+            r"variant: .*fromJSON\('([^']+)'\)\[inputs\.variant \|\| 'all'\]",
+            workflow,
+        )
+        self.assertIsNotNone(selection, "build matrix must use the dispatch choice and default to all")
+        self.assertEqual(json.loads(selection.group(1)), {
+            "all": ["a3", "a2", "a5"],
+            "a2": ["a2"],
+            "a3": ["a3"],
+            "a5": ["a5"],
+        })
+
     def test_defines_a3_a2_and_a5_build_variants(self) -> None:
         workflow = self.workflow()
 
-        self.assertIn("target_tag: vime-latest", workflow)
-        self.assertIn("soc_version: ascend910_9391", workflow)
-        self.assertIn("target_tag: vime-a2-latest", workflow)
-        self.assertIn("soc_version: ascend910b1", workflow)
-        self.assertIn("target_tag: vime-a5-latest", workflow)
-        self.assertIn("soc_version: ascend950dt_9582", workflow)
+        expected = {
+            "TARGET_TAG": {"a2": "vime-a2-latest", "a3": "vime-latest", "a5": "vime-a5-latest"},
+            "SOC_VERSION": {"a2": "ascend910b1", "a3": "ascend910_9391", "a5": "ascend950dt_9582"},
+        }
+        for env, mapping in expected.items():
+            with self.subTest(env=env):
+                setting = re.search(rf"{env}: .*fromJSON\('([^']+)'\)\[matrix\.variant\]", workflow)
+                self.assertIsNotNone(setting)
+                self.assertEqual(json.loads(setting.group(1)), mapping)
         self.assertIn("Resolve base image from the pinned Dockerfile", workflow)
         self.assertIn("--build-arg \"BASE_IMAGE_REF=${base_image_ref}\"", workflow)
 

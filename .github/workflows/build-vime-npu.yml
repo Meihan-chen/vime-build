@@ -2,6 +2,17 @@ name: Build Vime NPU image
 
 on:
   workflow_dispatch:
+    inputs:
+      variant:
+        description: Ascend hardware variant (linux/arm64)
+        required: true
+        type: choice
+        default: all
+        options:
+          - all
+          - a2
+          - a3
+          - a5
   schedule:
     - cron: "17 18 * * *"
 
@@ -23,22 +34,14 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - variant: a3
-            target_tag: vime-latest
-            soc_version: ascend910_9391
-          - variant: a2
-            target_tag: vime-a2-latest
-            soc_version: ascend910b1
-          - variant: a5
-            target_tag: vime-a5-latest
-            soc_version: ascend950dt_9582
+        # Scheduled runs have no dispatch input and select all variants.
+        variant: ${{ fromJSON('{"all":["a3","a2","a5"],"a2":["a2"],"a3":["a3"],"a5":["a5"]}')[inputs.variant || 'all'] }}
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 360
     env:
       VARIANT: ${{ matrix.variant }}
-      SOC_VERSION: ${{ matrix.soc_version }}
-      TARGET_TAG: ${{ matrix.target_tag }}
+      SOC_VERSION: ${{ fromJSON('{"a2":"ascend910b1","a3":"ascend910_9391","a5":"ascend950dt_9582"}')[matrix.variant] }}
+      TARGET_TAG: ${{ fromJSON('{"a2":"vime-a2-latest","a3":"vime-latest","a5":"vime-a5-latest"}')[matrix.variant] }}
 
     steps:
       - name: Check out build configuration
