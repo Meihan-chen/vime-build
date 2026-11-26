@@ -14,6 +14,7 @@ SOURCE = "https://github.com/vllm-project/vime"
 VARIANTS = {
     "a2": ("vime-a2-latest", "ascend910b1"),
     "a3": ("vime-latest", "ascend910_9391"),
+    "a5": ("vime-a5-latest", "ascend950dt_9582"),
 }
 
 
@@ -110,7 +111,7 @@ def retag(variant, *, publish=False, registry=None):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--variant", choices=("all", "a2", "a3"), default="all")
+    parser.add_argument("--variant", choices=("all", *VARIANTS), default="all")
     parser.add_argument("--publish", action="store_true", help="Create commit tags; default is read-only preview")
     args = parser.parse_args()
     try:

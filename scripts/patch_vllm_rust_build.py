@@ -8,7 +8,7 @@ import re
 
 SCRIPT_INVOCATION = re.compile(
     r"(?m)^([ \t]*)(?:bash[ \t]+(?:\./)?|\./)"
-    r"(?P<script_path>(?:tools/)?build_rust\.sh)[ \t]*$"
+    r"(?P<script_path>(?:tools/)?build_rust\.sh)[ \t]*(?P<chain>&&[ \t]*\\)?[ \t]*$"
 )
 PATCH_MARKER = "# codex-temporary-rust-build-path-compat-v1"
 
@@ -20,11 +20,13 @@ def patch_dockerfile_text(source: str) -> tuple[str, bool]:
         return source, False
     if len(matches) != 1 or PATCH_MARKER in source:
         raise ValueError(
-            "expected exactly one standalone vLLM Rust script invocation "
+            "expected exactly one supported vLLM Rust script invocation "
             "and no prior compatibility marker"
         )
     if matches[0].group("script_path") == "tools/build_rust.sh":
         return source, False
+    if matches[0].group("chain"):
+        raise ValueError("Unsupported chained legacy Rust invocation")
 
     indent = matches[0].group(1)
     replacement = "\n".join([

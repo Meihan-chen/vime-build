@@ -11,14 +11,21 @@ IMAGE = "quay.io/ascend/vime"
 COMMIT = "8a940bf457ee852619c53c1ca9ef812c9503e080"
 A3_DIGEST = "sha256:" + "a" * 64
 A2_DIGEST = "sha256:" + "b" * 64
+A5_DIGEST = "sha256:" + "d" * 64
 OTHER_DIGEST = "sha256:" + "c" * 64
 
 
 class RegistryFixture:
     def __init__(self):
-        self.tags = {f"{IMAGE}:vime-latest": A3_DIGEST, f"{IMAGE}:vime-a2-latest": A2_DIGEST}
+        self.tags = {
+            f"{IMAGE}:vime-latest": A3_DIGEST, f"{IMAGE}:vime-a2-latest": A2_DIGEST,
+            f"{IMAGE}:vime-a5-latest": A5_DIGEST,
+        }
         self.configs = {}
-        for digest, soc in [(A3_DIGEST, "ascend910_9391"), (A2_DIGEST, "ascend910b1")]:
+        for digest, soc in [
+            (A3_DIGEST, "ascend910_9391"), (A2_DIGEST, "ascend910b1"),
+            (A5_DIGEST, "ascend950dt_9582"),
+        ]:
             self.configs[f"{IMAGE}@{digest}"] = {
                 "architecture": "arm64", "os": "linux",
                 "config": {
@@ -58,6 +65,7 @@ class RetagTests(unittest.TestCase):
         result = self.module.retag("all", registry=self.registry)
         self.assertEqual([row["destination"] for row in result], [
             f"{IMAGE}:vime-8a940bf-a2", f"{IMAGE}:vime-8a940bf-a3",
+            f"{IMAGE}:vime-8a940bf-a5",
         ])
         self.assertEqual(self.registry.writes, [])
 
@@ -150,6 +158,26 @@ class RetagTests(unittest.TestCase):
         self.registry.tag = bad_tag
         with self.assertRaisesRegex(RuntimeError, "verification"):
             self.module.retag("a3", publish=True, registry=self.registry)
+
+    def test_a5_publishes_its_own_digest_and_preserves_latest(self):
+        plans = self.module.retag("a5", publish=True, registry=self.registry)
+        self.assertEqual(self.registry.writes, [
+            (f"{IMAGE}@{A5_DIGEST}", f"{IMAGE}:vime-8a940bf-a5"),
+        ])
+        self.assertEqual(self.registry.tags[f"{IMAGE}:vime-a5-latest"], A5_DIGEST)
+        self.assertEqual(plans[0]["variant"], "a5")
+
+    def test_a5_collision_blocks_all_variants_before_any_write(self):
+        self.registry.tags[f"{IMAGE}:vime-8a940bf-a5"] = OTHER_DIGEST
+        with self.assertRaisesRegex(ValueError, "different digest"):
+            self.module.retag("all", publish=True, registry=self.registry)
+        self.assertEqual(self.registry.writes, [])
+
+    def test_a5_rejects_a_runtime_soc_from_another_hardware_variant(self):
+        self.registry.configs[f"{IMAGE}@{A5_DIGEST}"]["config"]["Env"] = ["SOC_VERSION=ascend910_9391"]
+        with self.assertRaisesRegex(ValueError, "SOC"):
+            self.module.retag("a5", publish=True, registry=self.registry)
+        self.assertEqual(self.registry.writes, [])
 
 
 if __name__ == "__main__":

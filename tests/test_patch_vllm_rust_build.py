@@ -40,6 +40,17 @@ class PatchVllmRustBuildTests(unittest.TestCase):
         self.assertFalse(changed)
         self.assertEqual(patched, source)
 
+    def test_leaves_a_fixed_tools_call_in_a_continued_run_unchanged(self):
+        source = r"""RUN cd /vllm-workspace/vllm && \
+    bash tools/build_rust.sh && \
+    python3 -m pip cache purge
+"""
+        self.assertEqual(patch_dockerfile_text(source), (source, False))
+
+    def test_rejects_an_unsupported_legacy_chained_call(self):
+        with self.assertRaisesRegex(ValueError, "chained"):
+            patch_dockerfile_text("    ./build_rust.sh && \\\n")
+
     def test_legacy_bash_invocation_runs_either_script_without_executable_bit(self):
         for script_path in ("tools/build_rust.sh", "build_rust.sh"):
             with self.subTest(script_path=script_path), tempfile.TemporaryDirectory() as directory:

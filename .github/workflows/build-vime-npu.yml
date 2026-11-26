@@ -30,6 +30,9 @@ jobs:
           - variant: a2
             target_tag: vime-a2-latest
             soc_version: ascend910b1
+          - variant: a5
+            target_tag: vime-a5-latest
+            soc_version: ascend950dt_9582
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 360
     env:
@@ -120,14 +123,12 @@ jobs:
           tag = args.get("BASE_IMAGE_TAG")
           if not repository or not tag or not repository.startswith("quay.io/"):
               raise SystemExit("Dockerfile must declare a quay.io BASE_IMAGE and BASE_IMAGE_TAG before FROM")
-          if variant == "a2" and tag.endswith("-a3"):
-              tag = tag[:-3] + "-a2"
-          elif variant == "a3" and tag.endswith("-a3"):
-              pass
-          else:
+          hardware_tag = re.fullmatch(r"(.+)-(a2|a3|a5)", tag)
+          if variant not in ("a2", "a3", "a5") or not hardware_tag:
               raise SystemExit(
-                  f"Cannot derive the {variant} base tag from Dockerfile default {tag!r}; expected an A3 '-a3' suffix"
+                  f"Cannot derive the {variant} base tag from Dockerfile default {tag!r}; expected an '-a2', '-a3' or '-a5' suffix"
               )
+          tag = f"{hardware_tag.group(1)}-{variant}"
 
           image_ref = f"{repository}:{tag}"
           inspected = subprocess.run(

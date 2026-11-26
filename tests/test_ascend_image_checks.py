@@ -42,7 +42,7 @@ def image_config():
 
 
 class ImageChecksTests(unittest.TestCase):
-    def run_step(self, response, error="", step="Check existing image and protect tag identity", publish=True):
+    def run_step(self, response, error="", step="Check existing image and protect tag identity", publish=True, soc="ascend910_9391"):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             docker = root / "docker"
@@ -63,7 +63,7 @@ class ImageChecksTests(unittest.TestCase):
                 "RUNNER_TEMP": str(root), "GITHUB_OUTPUT": str(output),
                 "GITHUB_STEP_SUMMARY": str(root / "summary"),
                 "ASCEND_COMMIT": ASCEND, "VLLM_COMMIT": VLLM,
-                "SOC_VERSION": "ascend910_9391", "BUILD_RECIPE": "recipe-1",
+                "SOC_VERSION": soc, "BUILD_RECIPE": "recipe-1",
                 "BUILD_DIGEST": DIGEST, "IMAGE": "quay.io/atlas-ci/vllm-ascend",
                 "IMAGE_TAG": "v0.28.0-f848128-a3",
                 "PUBLISH_IMAGE": str(publish).lower(),
@@ -124,6 +124,21 @@ class ImageChecksTests(unittest.TestCase):
         config = image_config()
         config["architecture"] = "amd64"
         result, _ = self.run_step(config, step="Verify built image before publishing tag")
+        self.assertNotEqual(result.returncode, 0)
+
+    def test_a5_image_identity_requires_matching_label_and_runtime_soc(self):
+        config = image_config()
+        config["config"]["Labels"]["io.vllm-ascend.soc-version"] = "ascend950dt_9582"
+        config["config"]["Env"] = ["SOC_VERSION=ascend950dt_9582"]
+        result, outputs = self.run_step(
+            {"image": config, "manifest": {"digest": DIGEST}}, soc="ascend950dt_9582",
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("should_build=false", outputs)
+        config["config"]["Env"] = ["SOC_VERSION=ascend910_9391"]
+        result, _ = self.run_step(
+            {"image": config, "manifest": {"digest": DIGEST}}, soc="ascend950dt_9582",
+        )
         self.assertNotEqual(result.returncode, 0)
 
 

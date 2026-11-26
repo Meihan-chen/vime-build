@@ -80,7 +80,7 @@ def select_previous_release(releases, vllm_commit, commit_date, resolve_tag):
 
 
 def build_matrix(variant, version_prefix, ascend_commit):
-    if variant not in ("all", "a2", "a3"):
+    if variant not in ("all", "a2", "a3", "a5"):
         raise ValueError(f"Unsupported hardware variant: {variant}")
     return {"include": [
         {
@@ -92,6 +92,7 @@ def build_matrix(variant, version_prefix, ascend_commit):
         for name, dockerfile, soc in [
             ("a2", "Dockerfile", "ascend910b1"),
             ("a3", "Dockerfile.a3", "ascend910_9391"),
+            ("a5", "Dockerfile.a5", "ascend950dt_9582"),
         ]
         if variant in ("all", name)
     ]}
@@ -134,7 +135,7 @@ def resolve(ascend_commit, variant, *, api=gh_json):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--ascend-commit", required=True)
-    parser.add_argument("--variant", choices=("all", "a2", "a3"), default="all")
+    parser.add_argument("--variant", choices=("all", "a2", "a3", "a5"), default="all")
     args = parser.parse_args()
     try:
         result = resolve(args.ascend_commit, args.variant)

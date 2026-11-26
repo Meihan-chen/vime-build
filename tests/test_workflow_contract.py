@@ -42,18 +42,19 @@ class WorkflowContractTests(unittest.TestCase):
         self.assertIn("runs-on: ubuntu-24.04-arm", workflow)
         self.assertIn("--platform linux/arm64", workflow)
 
-    def test_defines_a3_and_a2_build_variants(self) -> None:
+    def test_defines_a3_a2_and_a5_build_variants(self) -> None:
         workflow = self.workflow()
 
         self.assertIn("target_tag: vime-latest", workflow)
         self.assertIn("soc_version: ascend910_9391", workflow)
         self.assertIn("target_tag: vime-a2-latest", workflow)
         self.assertIn("soc_version: ascend910b1", workflow)
+        self.assertIn("target_tag: vime-a5-latest", workflow)
+        self.assertIn("soc_version: ascend950dt_9582", workflow)
         self.assertIn("Resolve base image from the pinned Dockerfile", workflow)
-        self.assertIn('tag.endswith("-a3")', workflow)
         self.assertIn("--build-arg \"BASE_IMAGE_REF=${base_image_ref}\"", workflow)
 
-    def test_publishes_only_the_a3_and_a2_latest_tags(self) -> None:
+    def test_publishes_only_the_selected_latest_tags(self) -> None:
         workflow = self.workflow()
 
         self.assertIn("IMAGE: quay.io/ascend/vime", workflow)
@@ -62,6 +63,11 @@ class WorkflowContractTests(unittest.TestCase):
         self.assertIn("docker buildx imagetools create", workflow)
         self.assertNotRegex(workflow, r"ascend-.*sha")
         self.assertNotRegex(workflow, r"vime-[0-9a-f]{7,40}")
+
+    def test_both_manual_workflows_offer_a5(self) -> None:
+        for name in ("build-vllm-ascend.yml", "tag-vime-commit.yml"):
+            workflow = (ROOT / ".github/workflows" / name).read_text()
+            self.assertIn("          - a5\n", workflow)
 
     def test_uses_the_upstream_revision_as_the_image_identity(self) -> None:
         workflow = self.workflow()

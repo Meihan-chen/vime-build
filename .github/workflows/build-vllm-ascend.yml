@@ -17,6 +17,7 @@ on:
           - all
           - a2
           - a3
+          - a5
       publish:
         description: Push to atlas-ci (false builds and validates locally without Quay credentials)
         required: true
@@ -216,9 +217,13 @@ jobs:
         run: |
           set -euo pipefail
           metadata_file="${RUNNER_TEMP}/ascend-build-metadata.json"
-          cache_args=(--cache-to type=inline)
+          build_args=(--cache-to type=inline)
           if [[ -n "${CACHE_FROM}" ]]; then
-            cache_args+=(--cache-from "${CACHE_FROM}")
+            build_args+=(--cache-from "${CACHE_FROM}")
+          fi
+          if [[ "${DOCKERFILE}" == "Dockerfile.a5" ]]; then
+            # A5 recipes may default to parallelism intended for much larger runners.
+            build_args+=(--build-arg MAX_JOBS=2 --build-arg CARGO_BUILD_JOBS=2)
           fi
           if [[ "${PUBLISH_IMAGE}" == "true" ]]; then
             output="type=image,name=${IMAGE},push-by-digest=true,name-canonical=true,push=true"
@@ -242,7 +247,7 @@ jobs:
             --label "io.vllm-ascend.build-url=${BUILD_URL}" \
             --label "io.vllm-ascend.build-revision=${BUILD_REVISION}" \
             --label "io.vllm-ascend.build-recipe=${BUILD_RECIPE}" \
-            "${cache_args[@]}" \
+            "${build_args[@]}" \
             --provenance=false \
             --sbom=false \
             --output "${output}" \

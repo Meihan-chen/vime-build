@@ -17,6 +17,7 @@ RELEASE_BASE = (
 SHA256 = {
     "a2": "aefe29fe3f021db45276b289b1f9882f85a34ce1f9900ba94251bda490af4b6e",
     "a3": "0e0febfe0b524df54c02dead985b787cf51f276ef904e4c2f88c5d43707a370b",
+    "a5": "c660b90cee1d93c83292bb9b8509371da83493a633efd3e5113f70380d373521",
 }
 MIRROR_PREFIX = "https://mirrors.huaweicloud.com/ascend/repos/pypi/flash_linear_attention_npu_"
 OLD_BLOCK = r'''    URL="https://mirrors.huaweicloud.com/ascend/repos/pypi/flash_linear_attention_npu_@VARIANT@/${FLA_WHL}" && \
@@ -42,7 +43,7 @@ def prepare_dockerfile(source: str, variant: str) -> tuple[str, str | None]:
     if MIRROR_PREFIX not in source:
         return source, None
 
-    mirrors = re.findall(re.escape(MIRROR_PREFIX) + r'(a[23])/\$\{FLA_WHL\}', source)
+    mirrors = re.findall(re.escape(MIRROR_PREFIX) + r'(a[235])/\$\{FLA_WHL\}', source)
     if mirrors != [variant]:
         raise ValueError("FLA mirror variant does not match the build matrix")
     if not re.search(r'^ARG FLA_VERSION="?26\.9\.1"?[ \t]*$', source, re.MULTILINE):
@@ -56,9 +57,14 @@ def prepare_dockerfile(source: str, variant: str) -> tuple[str, str | None]:
         raise ValueError("Expected the ARM64 FLA 26.9.1 wheel definition")
 
     old = OLD_BLOCK.replace("@VARIANT@", variant)
-    if source.count(old) != 1:
+    candidates = (
+        old,
+        old.replace('no-deps /tmp/${FLA_WHL}', 'no-deps "/tmp/${FLA_WHL}"'),
+    )
+    matches = [block for block in candidates if source.count(block) == 1]
+    if len(matches) != 1:
         raise ValueError("Unexpected FLA download block; update the compatibility adapter")
-    patched = source.replace(old, NEW_BLOCK.replace("@SHA256@", SHA256[variant]), 1)
+    patched = source.replace(matches[0], NEW_BLOCK.replace("@SHA256@", SHA256[variant]), 1)
     wheel = f"flash_linear_attention_npu_{variant}-26.9.1-py3-none-manylinux_2_34_aarch64.whl"
     return patched, f"{RELEASE_BASE}/{wheel}"
 
@@ -66,7 +72,7 @@ def prepare_dockerfile(source: str, variant: str) -> tuple[str, str | None]:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("dockerfile", type=Path)
-    parser.add_argument("--variant", choices=("a2", "a3"), required=True)
+    parser.add_argument("--variant", choices=("a2", "a3", "a5"), required=True)
     parser.add_argument("--check-download", action="store_true")
     args = parser.parse_args()
     source = args.dockerfile.read_text(encoding="utf-8")

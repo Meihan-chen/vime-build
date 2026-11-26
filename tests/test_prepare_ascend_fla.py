@@ -26,10 +26,14 @@ RUN FLA_WHL="flash_linear_attention_npu_a2-${FLA_VERSION}-py3-none-manylinux_2_3
 
 
 class PrepareAscendFlaTests(unittest.TestCase):
-    def test_prepares_both_arm64_variants_from_the_official_release(self):
-        for variant in ("a2", "a3"):
+    def test_prepares_all_arm64_variants_from_the_official_release(self):
+        for variant in ("a2", "a3", "a5"):
             with self.subTest(variant=variant):
                 source = SOURCE.replace("_a2", f"_{variant}")
+                if variant == "a5":
+                    source = source.replace(
+                        "no-deps /tmp/${FLA_WHL}", 'no-deps "/tmp/${FLA_WHL}"'
+                    )
                 patched, url = prepare_dockerfile(source, variant)
 
                 self.assertTrue(url.startswith(

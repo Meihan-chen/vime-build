@@ -137,7 +137,7 @@ class ResolverTests(unittest.TestCase):
         self.assertEqual(result["ascend_commit"], ASCEND)
         self.assertEqual(
             [entry["image_tag"] for entry in result["matrix"]["include"]],
-            ["v0.28.0-f848128-a2", "v0.28.0-f848128-a3"],
+            ["v0.28.0-f848128-a2", "v0.28.0-f848128-a3", "v0.28.0-f848128-a5"],
         )
 
     def test_selecting_one_hardware_variant_does_not_build_the_other(self):
@@ -149,7 +149,15 @@ class ResolverTests(unittest.TestCase):
 
     def test_unknown_hardware_variant_is_rejected(self):
         with self.assertRaises(ValueError):
-            self.resolver.build_matrix("a5", "v0.28.0", ASCEND)
+            self.resolver.build_matrix("a4", "v0.28.0", ASCEND)
+
+    def test_selecting_a5_uses_its_own_dockerfile_soc_and_tag(self):
+        self.assertEqual(self.resolver.build_matrix("a5", "v0.32.0", ASCEND), {
+            "include": [{
+                "variant": "a5", "dockerfile": "Dockerfile.a5",
+                "soc_version": "ascend950dt_9582", "image_tag": "v0.32.0-f848128-a5",
+            }],
+        })
 
 
 if __name__ == "__main__":

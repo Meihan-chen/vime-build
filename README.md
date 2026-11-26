@@ -2,11 +2,12 @@
 
 Builds the Vime Ascend NPU image from the
 [`vllm-project/vime`](https://github.com/vllm-project/vime/tree/ascend)
-`ascend` branch and publishes two ARM64 variants:
+`ascend` branch and publishes three ARM64 variants:
 
 ```text
 Atlas A3: quay.io/ascend/vime:vime-latest
 Atlas A2: quay.io/ascend/vime:vime-a2-latest
+Atlas A5: quay.io/ascend/vime:vime-a5-latest
 ```
 
 The daily Vime build publishes only latest tags. Commit tags can be added to
@@ -18,7 +19,8 @@ existing images using the separate manual workflow described below.
 once per day at 18:17 UTC (02:17 Asia/Shanghai) and can also be started manually
 from the Actions page. Each run checks out a pinned Vime commit and reads the
 base-image repository and tag from that checkout's `docker/Dockerfile.npu`.
-For A2 it changes only the Dockerfile's trailing `-a3` suffix to `-a2`. It
+For each variant it changes only the trailing hardware suffix (`-a2`, `-a3`,
+or `-a5`), preserving the Dockerfile's repository and version/commit prefix. It
 resolves that tag to a digest and builds `FROM` the immutable digest. Each
 variant compares the Vime HEAD, base-image digest, and SOC version with its
 published image before deciding whether to rebuild.
@@ -45,7 +47,7 @@ in the workflow file.
 
 ## Publishing behavior
 
-The A3 and A2 matrix jobs run natively on GitHub's `ubuntu-24.04-arm` runners
+The A2, A3 and A5 matrix jobs run natively on GitHub's `ubuntu-24.04-arm` runners
 and produce only `linux/arm64`. Each job pushes its completed result by digest
 without a visible temporary tag, then rechecks both the upstream Vime HEAD and
 resolved base-image digest before moving its latest tag to that digest. A build
@@ -66,7 +68,7 @@ ARM64 runner with a larger disk.
 
 [`tag-vime-commit.yml`](.github/workflows/tag-vime-commit.yml), **Tag Vime latest
 with commit**, runs only through `workflow_dispatch`. Select `variant=all`,
-`a2`, or `a3`. The default `publish=false` previews the operation; set
+`a2`, `a3`, or `a5`. The default `publish=false` previews the operation; set
 `publish=true` to create tags using the existing `QUAY_USERNAME` / `QUAY_TOKEN`
 Secrets for `quay.io/ascend/vime`.
 
@@ -74,6 +76,7 @@ Secrets for `quay.io/ascend/vime`.
 | --- | --- | --- |
 | A2 | `quay.io/ascend/vime:vime-a2-latest` | `quay.io/ascend/vime:vime-<Vime-first-7-SHA>-a2` |
 | A3 | `quay.io/ascend/vime:vime-latest` | `quay.io/ascend/vime:vime-<Vime-first-7-SHA>-a3` |
+| A5 | `quay.io/ascend/vime:vime-a5-latest` | `quay.io/ascend/vime:vime-<Vime-first-7-SHA>-a5` |
 
 The SHA comes from the published image's full `org.opencontainers.image.revision`
 label, not the current GitHub branch HEAD or the vLLM/Ascend dependency versions.
@@ -86,7 +89,7 @@ All selected variants are checked before any write. A missing/invalid revision,
 unexpected source/platform/SOC, or a destination pointing to another digest
 fails explicitly. An already matching destination is a successful no-op. A
 different digest is never overwritten, even when the commit is unchanged but
-dependencies were rebuilt. If A2/A3 latest images contain different commits,
+dependencies were rebuilt. If A2/A3/A5 latest images contain different commits,
 each gets its own correctly derived tag, shown in the Actions summary.
 
 Preview the current latest images:
@@ -120,20 +123,33 @@ Missing/invalid commits or unsupported Dockerfiles cause an error instead of
 falling back to the upstream default release tag.
 
 For the known FLA 26.9.1 mirror download block, a temporary adapter uses the
-official GitHub release with pinned A2/A3 ARM64 SHA256 checksums and checks the
+official GitHub release with pinned A2/A3/A5 ARM64 SHA256 checksums and checks the
 download before compilation. Existing GitHub downloads are preserved; unknown
 mirror versions or layouts fail early and require an adapter update.
 
 | Input | Required | Meaning |
 | --- | --- | --- |
 | `ascend_commit` | Yes | Full 40-character SHA in `vllm-project/vllm-ascend` |
-| `variant` | Yes; default `all` | `a2`, `a3`, or `all`; both build natively for `linux/arm64` |
+| `variant` | Yes; default `all` | `a2`, `a3`, `a5`, or `all`; all three build natively for `linux/arm64` |
 | `publish` | Yes; default `false` | `false`: full local build and validation; `true`: publish to atlas-ci |
 
 | Variant | Dockerfile from the pinned commit | SOC_VERSION |
 | --- | --- | --- |
 | A2 | `Dockerfile` | `ascend910b1` |
 | A3 | `Dockerfile.a3` | `ascend910_9391` |
+| A5 | `Dockerfile.a5` | `ascend950dt_9582` |
+
+`all` selects all three variants. Historical commits must include `Dockerfile.a5`
+to build A5; otherwise select `a2` or `a3`. A5 builds pass `MAX_JOBS=2` and
+`CARGO_BUILD_JOBS=2` to limit compilation parallelism on the hosted runner.
+
+The Vime workflow requires the matching base tag for each selected variant to
+already exist. For example, if the Vime Dockerfile declares
+`v0.32.0-bf07462-a3`, first build Ascend commit
+`bf074627d11b65dfb41720355ba2c08725c0e0d1` with `variant=a5` and `publish=true`
+to create `quay.io/atlas-ci/vllm-ascend:v0.32.0-bf07462-a5`. The workflows remain
+independent. Create `vime-a5-latest` before running commit tagging with `all`;
+that workflow checks every selected source before creating any tags.
 
 ### Separate atlas-ci credentials
 
@@ -169,17 +185,19 @@ pinned to the SHA from the verified file:
 ```text
 quay.io/atlas-ci/vllm-ascend:<previous-release>-<Ascend-first-7-SHA>-a2
 quay.io/atlas-ci/vllm-ascend:<previous-release>-<Ascend-first-7-SHA>-a3
+quay.io/atlas-ci/vllm-ascend:<previous-release>-<Ascend-first-7-SHA>-a5
 ```
 
-For example, Ascend `f8481287a07cd7c407a3142f5d4188d71d964467` records vLLM
-`b2f685834a6456197e7033966fdef52a23f1abcd` (2026-08-29). Its prefix is `v0.28.0`
-(published 2026-08-26), giving `v0.28.0-f848128-a2` and `v0.28.0-f848128-a3`.
+For example, Ascend `bf074627d11b65dfb41720355ba2c08725c0e0d1` records vLLM
+`544f182d9f0c9bfe8bd7645525951d5e3692a542` (2026-10-23). Its prefix is `v0.32.0`
+(published 2026-10-18), giving `v0.32.0-bf07462-a2`, `v0.32.0-bf07462-a3`,
+and `v0.32.0-bf07462-a5`.
 
 ### Run and inspect
 
 ```bash
 gh workflow run build-vllm-ascend.yml --repo Meihan-chen/vime-build \
-  -f ascend_commit=f8481287a07cd7c407a3142f5d4188d71d964467 \
+  -f ascend_commit=bf074627d11b65dfb41720355ba2c08725c0e0d1 \
   -f variant=all -f publish=true
 ```
 
@@ -187,7 +205,7 @@ For a full build without uploading images (no Quay credentials needed):
 
 ```bash
 gh workflow run build-vllm-ascend.yml --repo Meihan-chen/vime-build \
-  -f ascend_commit=fd815467c221ee600137f6bdd53fe354d5e7c999 \
+  -f ascend_commit=bf074627d11b65dfb41720355ba2c08725c0e0d1 \
   -f variant=all -f publish=false
 ```
 
@@ -195,7 +213,7 @@ To preview resolution locally without building or pushing an image:
 
 ```bash
 python3 scripts/resolve_ascend_build.py \
-  --ascend-commit f8481287a07cd7c407a3142f5d4188d71d964467 --variant all
+  --ascend-commit bf074627d11b65dfb41720355ba2c08725c0e0d1 --variant all
 ```
 
 The resolver requires Python 3.10+ and an authenticated `gh` CLI (Actions uses
@@ -211,7 +229,7 @@ Each image records these labels:
 | `org.opencontainers.image.version` | Complete generated image tag |
 | `org.opencontainers.image.created` | UTC build timestamp |
 | `io.vllm-ascend.vllm-revision` | Full verified vLLM SHA |
-| `io.vllm-ascend.soc-version` | A2/A3 SOC version |
+| `io.vllm-ascend.soc-version` | A2/A3/A5 SOC version |
 | `io.vllm-ascend.build-url` | GitHub Actions Run URL |
 | `io.vllm-ascend.build-revision` | Build-configuration repository SHA |
 | `io.vllm-ascend.build-recipe` | Hash of this workflow and resolver |

@@ -14,7 +14,7 @@ from tests.test_ascend_image_checks import ROOT, ASCEND, VLLM, DIGEST, image_con
 
 
 class ValidationBuildTests(unittest.TestCase):
-    def build_args(self, publish):
+    def build_args(self, publish, variant="a3"):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             docker = root / "docker"
@@ -33,9 +33,10 @@ class ValidationBuildTests(unittest.TestCase):
                 "GITHUB_OUTPUT": str(root / "output"), "CAPTURE_ARGS": str(root / "args"),
                 "BUILD_DIGEST": DIGEST, "BUILD_RECIPE": "recipe-1", "BUILD_REVISION": "b" * 40,
                 "BUILD_URL": "https://github.com/example/runs/1", "CACHE_FROM": "",
-                "ASCEND_COMMIT": ASCEND, "VLLM_COMMIT": VLLM, "SOC_VERSION": "ascend910_9391",
-                "IMAGE": "quay.io/atlas-ci/vllm-ascend", "IMAGE_TAG": "v0.28.0-f848128-a3",
-                "DOCKERFILE": "Dockerfile.a3",
+                "ASCEND_COMMIT": ASCEND, "VLLM_COMMIT": VLLM,
+                "SOC_VERSION": "ascend950dt_9582" if variant == "a5" else "ascend910_9391",
+                "IMAGE": "quay.io/atlas-ci/vllm-ascend", "IMAGE_TAG": f"v0.28.0-f848128-{variant}",
+                "DOCKERFILE": f"Dockerfile.{variant}",
             }
             result = subprocess.run(
                 ["/bin/bash", "-c", workflow_script("Build pinned source image")],
@@ -55,6 +56,13 @@ class ValidationBuildTests(unittest.TestCase):
     def test_publish_export_still_pushes_by_digest(self):
         args = self.build_args(True)
         self.assertIn("push-by-digest=true", args[args.index("--output") + 1])
+
+    def test_a5_uses_its_dockerfile_soc_and_conservative_build_parallelism(self):
+        args = self.build_args(False, variant="a5")
+        self.assertEqual(args[args.index("--file") + 1], "ascend/Dockerfile.a5")
+        self.assertIn("SOC_VERSION=ascend950dt_9582", args)
+        self.assertIn("MAX_JOBS=2", args)
+        self.assertIn("CARGO_BUILD_JOBS=2", args)
 
     def test_credentials_and_tag_publication_are_opt_in(self):
         workflow = (ROOT / ".github/workflows/build-vllm-ascend.yml").read_text()

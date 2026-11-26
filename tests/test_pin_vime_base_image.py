@@ -96,7 +96,7 @@ class PinVimeBaseImageTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "base stage"):
             pin_base_image("FROM ubuntu:22.04\n")
 
-    def test_multistage_resolution_still_uses_the_correct_a2_and_a3_image(self):
+    def test_multistage_resolution_uses_each_hardware_image_from_a3_or_a5_defaults(self):
         lines = WORKFLOW.read_text().splitlines()
         start = lines.index("      - name: Resolve base image from the pinned Dockerfile")
         start = lines.index("        run: |", start) + 1
@@ -105,12 +105,12 @@ class PinVimeBaseImageTests(unittest.TestCase):
             if line and not line.startswith("          "):
                 break
             body.append(line[10:])
-        for variant in ("a2", "a3"):
-            with self.subTest(variant=variant), tempfile.TemporaryDirectory() as directory:
+        for default, variant in ((d, v) for d in ("a3", "a5") for v in ("a2", "a3", "a5")):
+            with self.subTest(default=default, variant=variant), tempfile.TemporaryDirectory() as directory:
                 root = Path(directory)
                 dockerfile = root / "upstream/docker/Dockerfile.npu"
                 dockerfile.parent.mkdir(parents=True)
-                dockerfile.write_text(pin_base_image(MULTI))
+                dockerfile.write_text(pin_base_image(MULTI.replace("007abb8-a3", f"007abb8-{default}")))
                 docker = root / "docker"
                 docker.write_text(
                     f"#!{sys.executable}\n"
